@@ -800,11 +800,11 @@ html {
 .obj-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px;
     font-family: ui-monospace, monospace; background: rgba(128,128,128,.10); }
 .obj-chip-k { opacity: .55; font-family: inherit; }
-.obj-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; margin: 0 0 22px; }
-.obj-kpis .sen-kpi { min-width: 0; padding: 14px 18px; }
-.obj-kpis .k-value { font-size: 26px; }
+.obj-kpis, .kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; margin: 0 0 22px; }
+.obj-kpis .sen-kpi, .kpi-grid .sen-kpi { min-width: 0; padding: 14px 18px; }
+.obj-kpis .k-value, .kpi-grid .k-value { font-size: 26px; }
 .obj-kpis .k-value.k-small { font-size: 17px; }
-.obj-kpis .k-caption { font-size: 11.5px; opacity: .6; margin-top: 4px; font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.obj-kpis .k-caption, .kpi-grid .k-caption { font-size: 11.5px; opacity: .6; margin-top: 4px; font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 节标题：给足上下呼吸 */
 .sen-sec { font-size: 13px; font-weight: 700; margin: 28px 0 12px; letter-spacing: .3px; }

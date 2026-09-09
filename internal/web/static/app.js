@@ -5282,37 +5282,32 @@ const OverviewPage = defineComponent({
                     default: () => h(NButton, { size: 'small', type: 'primary', onClick: () => router.push('/notifications') }, () => '去配置'),
                 }) : null,
 
-                h('div', { style: 'margin:2px 0 18px' }, [
-                    h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap' }, [
-                        ...Object.entries(d.dims || {}).map(([dim, v]) => {
-                            const name = { host: '主机', container: '容器', app: '应用', business: '业务', database: '数据库', middleware: '中间件' }[dim] || dim;
-                            return h('div', { class: 'sen-card sen-kpi' }, [
-                                h('div', { class: 'k-label' }, name + '规则'),
-                                h('div', { style: 'display:flex;align-items:baseline;gap:8px' }, [
-                                    h('span', { class: 'k-value' }, v[1]),
-                                    v[0] > 0
-                                        ? h(NTag, { size: 'tiny', type: 'error', bordered: false }, () => v[0] + ' 触发')
-                                        : h(NTag, { size: 'tiny', type: 'success', bordered: false }, () => '正常'),
-                                ]),
-                            ]);
-                        }),
-                        h('div', { style: 'width:1px;background:var(--stat-card-border,#eee);margin:6px 6px' }),
-                        h('div', { class: 'sen-card sen-kpi sen-card-click', onClick: () => router.push('/notifications') }, [
-                            h('div', { class: 'k-label' }, '通知渠道'),
-                            h('div', { style: 'display:flex;align-items:baseline;gap:8px' }, [
-                                h('span', { class: 'k-value' }, d.self.notify_channels),
-                                d.self.notify_channels > 0
-                                    ? h(NTag, { size: 'tiny', type: 'success', bordered: false }, () => '可用')
-                                    : h(NTag, { size: 'tiny', type: 'error', bordered: false }, () => '未配置'),
-                            ]),
-                        ]),
-                        h('div', { class: 'sen-card sen-kpi', style: 'min-width:170px' }, [
-                            h('div', { class: 'k-label' }, '采集器（指标 / 证书 / 站点）'),
-                            h('div', { class: 'k-value' },
-                                `${d.self.targets_running} / ${d.self.cert_running} / ${d.self.health_running}`),
-                        ]),
-                    ]),
-                ]),
+                (() => {
+                    // 顶部统计卡：与对象详情页同一套卡片语言（网格、大数字、副标题、状态色底）
+                    const firingN = (d.firing || []).length;
+                    const cards = [{
+                        label: '告警', value: firingN, tone: firingN > 0 ? 'crit' : '',
+                        caption: firingN > 0 ? `${groups.length} 个问题触发中` : `全部正常 · 最近已恢复 ${resolved.value.length} 条`,
+                    }];
+                    for (const [dim, v] of Object.entries(d.dims || {})) {
+                        const name = { host: '主机', container: '容器', app: '应用', business: '业务', database: '数据库', middleware: '中间件' }[dim] || dim;
+                        cards.push({ label: name + '规则', value: v[1], tone: v[0] > 0 ? 'crit' : '', caption: v[0] > 0 ? `${v[0]} 条触发中` : '全部正常' });
+                    }
+                    cards.push({
+                        label: '通知渠道', value: d.self.notify_channels, tone: d.self.notify_channels > 0 ? '' : 'crit',
+                        caption: d.self.notify_channels > 0 ? '可用 · 点击管理' : '未配置 · 告警不会外发', onClick: () => router.push('/notifications'),
+                    });
+                    cards.push({ label: '指标采集', value: d.self.targets_running, caption: '个端点在线', onClick: () => router.push('/objects') });
+                    cards.push({ label: '证书检查', value: d.self.cert_running, caption: '个域名在跑', onClick: () => router.push('/cert-checks') });
+                    cards.push({ label: '站点检查', value: d.self.health_running, caption: '个站点在跑', onClick: () => router.push('/health-checks') });
+                    return h('div', { class: 'kpi-grid', style: 'margin-bottom:6px' }, cards.map(k => h('div', {
+                        class: 'sen-card sen-kpi ' + (k.tone || '') + (k.onClick ? ' sen-card-click' : ''), onClick: k.onClick,
+                    }, [
+                        h('div', { class: 'k-label' }, k.label),
+                        h('div', { class: 'k-value' }, k.value),
+                        h('div', { class: 'k-caption' }, k.caption),
+                    ])));
+                })(),
                 h('div', { class: 'sen-sec first', style: 'color:#d03050' },
                     groups.length ? `触发中（${groups.length} 个问题 / ${(d.firing || []).length} 条）` : '触发中'),
                 groups.length
