@@ -5707,34 +5707,48 @@ const ObjectDetailPage = defineComponent({
                 return c ? { label: def.label, check: c, pct: def.pct } : null;
             }).filter(Boolean);
             return h('div', { class: 'page-body' }, [
-                h('div', { class: 'page-header' }, [
-                    h('h3', { class: 'page-title', style: 'display:flex;align-items:center;gap:8px' }, [
-                        h(NButton, { size: 'small', quaternary: true, onClick: () => router.push('/objects') }, () => '‹'),
-                        // 标题即下拉：可搜索、直接切到另一台，不用退回列表
-                        objectOptions.value.length > 1 ? h(NSelect, {
-                            value: o.id, options: objectOptions.value, filterable: true, size: 'medium',
-                            consistentMenuWidth: false, style: 'min-width:220px;font-weight:650',
-                            renderLabel: opt => h('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, [
+                h('div', { class: 'obj-head' }, [
+                    h('div', { class: 'obj-head-main' }, [
+                        h(NButton, { size: 'small', quaternary: true, circle: true, onClick: () => router.push('/objects'), title: '返回对象列表' }, () => '‹'),
+                        // 标题即下拉：可搜索、直接切到另一台；选中态只显示名字，状态标签由右侧统一给
+                        objectOptions.value.length > 1 ? h('div', { class: 'obj-title-select' }, [h(NSelect, {
+                            value: o.id, options: objectOptions.value, filterable: true, size: 'large',
+                            consistentMenuWidth: false, placeholder: '选择对象',
+                            renderLabel: (opt, selected) => selected ? opt.label : h('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, [
                                 opt.label,
                                 opt.status && opt.status !== 'ok' ? h(NTag, { size: 'tiny', bordered: false, type: opt.status === 'firing' ? 'error' : opt.status === 'risk' ? 'warning' : 'default' },
                                     () => ({ firing: '告警', risk: '风险', stale: '停止' }[opt.status] || opt.status)) : null,
                             ]),
                             'onUpdate:value': id => { if (id && id !== o.id) router.push('/objects/' + id); },
-                        }) : objName(o.name),
+                        })]) : h('span', { class: 'page-title' }, objName(o.name)),
                         objStatusTag(o),
                     ]),
-                    h('span', { style: 'font-size:12px;opacity:.5' },
-                        Object.entries(o.labels || {}).filter(([, v]) => v && v !== '-').map(([k, v]) => `${k}=${v}`).join(' · ') + ` · 每 ${o.interval_sec}s`),
+                    h('div', { class: 'obj-head-meta' }, [
+                        ...Object.entries(o.labels || {}).filter(([, v]) => v && v !== '-').map(([k, v]) =>
+                            h('span', { class: 'obj-chip' }, [h('span', { class: 'obj-chip-k' }, ({ host: '宿主', role: '角色', vm: 'VM' }[k] || k)), v])),
+                        h('span', { class: 'obj-chip' }, [h('span', { class: 'obj-chip-k' }, '采集'), `每 ${o.interval_sec}s`]),
+                    ]),
                 ]),
-                kpis.length ? h('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin:4px 0 20px' },
-                    kpis.map(k => h('div', {
-                        class: 'sen-card sen-kpi' + (k.check.matched ? ' crit' : ''),
-                    }, [
+                (() => {
+                    const last = res.value.length ? res.value[res.value.length - 1] : null;
+                    const cards = kpis.map(k => {
+                        const v = k.check.value;
+                        let caption = k.check.matched ? '▲ 触发中' : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold);
+                        if (k.label === '内存' && o.mem_total) caption = `已用 ${fmtGB(v * o.mem_total / 100)} / 共 ${fmtGB(o.mem_total)}`;
+                        return { label: k.label, value: (Math.round(v * 10) / 10) + (k.pct ? '%' : ''), caption,
+                            tone: k.check.matched ? 'crit' : (k.check.risk ? 'warn' : '') };
+                    });
+                    // node 目标补两张来自资源采样的卡：CPU、网络（规则里没有这两个指标）
+                    if (last && o.kind === 'node') {
+                        cards.splice(1, 0, { label: 'CPU', value: (Math.round(last.cpu * 10) / 10) + '%', caption: `IO 等待 ${(Math.round(last.iowait * 10) / 10)}%`, tone: last.cpu >= 90 ? 'warn' : '' });
+                        cards.push({ label: '网络', value: '↓ ' + fmtBps(last.net_rx), caption: '↑ ' + fmtBps(last.net_tx), tone: '', small: true });
+                    }
+                    return cards.length ? h('div', { class: 'obj-kpis' }, cards.map(k => h('div', { class: 'sen-card sen-kpi ' + k.tone }, [
                         h('div', { class: 'k-label' }, k.label),
-                        h('div', { class: 'k-value', style: k.check.matched ? 'color:#d03050' : (k.check.risk ? 'color:#f0a020' : '') },
-                            (Math.round(k.check.value * 10) / 10) + (k.pct ? '%' : '')),
-                        k.check.matched ? h('div', { style: 'font-size:10.5px;color:#d03050' }, '▲ 触发中') : null,
-                    ]))) : null,
+                        h('div', { class: 'k-value' + (k.small ? ' k-small' : '') }, k.value),
+                        h('div', { class: 'k-caption' }, k.caption),
+                    ]))) : null;
+                })(),
 
                 o.kind === 'node' ? [
                     h('div', { class: 'sen-sec', style: 'display:flex;align-items:center;gap:12px;flex-wrap:wrap' }, [

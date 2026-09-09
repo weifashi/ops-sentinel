@@ -782,6 +782,28 @@ html {
 .sen-kpi .k-label { font-size: 12px; opacity: .55; margin-bottom: 3px; }
 .sen-kpi .k-value { font-size: 22px; font-weight: 750; font-family: ui-monospace, monospace; line-height: 1.25; }
 .sen-kpi.crit { border-color: rgba(208,48,80,.35); background: rgba(208,48,80,.05); }
+.sen-kpi.crit .k-value { color: #d03050; }
+.sen-kpi.warn { border-color: rgba(240,160,32,.4); background: rgba(240,160,32,.06); }
+.sen-kpi.warn .k-value { color: #d48806; }
+
+/* 对象详情页头：标题下拉 + 状态 + 元信息胶囊 + KPI 行 */
+.obj-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.obj-head-main { display: flex; align-items: center; gap: 10px; }
+.obj-title-select { min-width: 240px; }
+.obj-title-select .n-base-selection { --n-font-size: 20px; --n-height: 42px; font-weight: 750; }
+.obj-title-select .n-base-selection .n-base-selection-label { background: transparent; }
+.obj-title-select .n-base-selection .n-base-selection__border,
+.obj-title-select .n-base-selection .n-base-selection__state-border { border-color: transparent; }
+.obj-title-select .n-base-selection:hover .n-base-selection__border { border-color: rgba(128,128,128,.35); }
+.obj-head-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.obj-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    font-family: ui-monospace, monospace; background: rgba(128,128,128,.10); }
+.obj-chip-k { opacity: .55; font-family: inherit; }
+.obj-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0 0 22px; }
+.obj-kpis .sen-kpi { min-width: 0; padding: 14px 18px; }
+.obj-kpis .k-value { font-size: 26px; }
+.obj-kpis .k-value.k-small { font-size: 17px; }
+.obj-kpis .k-caption { font-size: 11.5px; opacity: .6; margin-top: 4px; font-family: ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 节标题：给足上下呼吸 */
 .sen-sec { font-size: 13px; font-weight: 700; margin: 28px 0 12px; letter-spacing: .3px; }
