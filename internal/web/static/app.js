@@ -5219,7 +5219,8 @@ function firingCard(router, group) {
             style: 'font-size:12.5px;opacity:.65;margin-top:4px;line-height:1.6;white-space:pre-line',
             title: first.message.length > 160 ? first.message : undefined,
         }, first.message.length > 160 ? first.message.slice(0, 160) + '…' : first.message) : null,
-        !multi && first.detail ? h('div', { style: 'font-size:12px;font-family:monospace;opacity:.7;margin-top:4px' }, '来源：' + first.detail) : null,
+        // message 摘要里已含"来源："时不再单独重复一行
+        !multi && first.detail && !(first.message || '').includes('来源：') ? h('div', { style: 'font-size:12px;font-family:monospace;opacity:.7;margin-top:4px' }, '来源：' + first.detail) : null,
         h('div', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;font-size:12px' }, [
             h(NTag, { size: 'tiny', bordered: false }, () => ({ prom: '指标', prom_target: '采集目标', health: '站点', cert: '证书', custom_sql: 'SQL' }[first.source] || first.source)),
             first.dimension ? h(NTag, { size: 'tiny', bordered: false }, () => first.dimension) : null,

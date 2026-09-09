@@ -1094,7 +1094,8 @@ func messageNote(check *store.PromCheck, rendered, detail string) string {
 	if strings.TrimSpace(check.MessageTemplate) != "" {
 		parts = append(parts, strings.TrimSpace(rendered))
 	}
-	if strings.TrimSpace(detail) != "" {
+	// message 里通常已经带了"来源："一行（evaluate 拼上的），别再加一遍
+	if strings.TrimSpace(detail) != "" && !strings.Contains(rendered, "来源：") {
 		parts = append(parts, "来源："+detail)
 	}
 	return strings.Join(parts, "\n")
