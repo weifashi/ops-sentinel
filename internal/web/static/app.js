@@ -4864,7 +4864,7 @@ const AppLayout = defineComponent({
             const sm = alertSummary.value;
             const pill = (cls, text) => h('span', {
                 class: 'strip-pill ' + cls,
-                onClick: () => router.push('/alerts'),
+                onClick: () => router.push('/overview'),
             }, text);
             const pills = [];
             if (sm.critical > 0) pills.push(pill('strip-r', '● ' + sm.critical));
@@ -4885,8 +4885,7 @@ const AppLayout = defineComponent({
         const menuOptions = computed(() => {
             const firing = alertSummary.value.critical + alertSummary.value.warning;
             return [
-                { label: '总览', key: 'overview' },
-                { label: () => h('span', null, firing > 0 ? `告警 (${firing})` : '告警'), key: 'alerts' },
+                { label: () => h('span', null, firing > 0 ? `总览 (${firing})` : '总览'), key: 'overview' },
                 { label: '监控对象', key: 'objects' },
                 { label: '规则与配置', key: 'g-rules' },
                 isUISettingEnabled('show_rocketmq_menu') ? { label: 'RocketMQ', key: 'g-rocketmq' } : null,
@@ -5245,9 +5244,11 @@ const OverviewPage = defineComponent({
         const data = ref(null);
         const loading = ref(true);
         let timer = null;
+        const resolved = ref([]);
         async function load() {
             try { data.value = await api.get('/api/overview'); } catch {}
             loading.value = false;
+            try { resolved.value = await api.get('/api/alert-events?status=resolved&limit=100') || []; } catch {}
         }
         onMounted(() => { load(); timer = setInterval(load, 30000); });
         onUnmounted(() => clearInterval(timer));
@@ -5323,76 +5324,45 @@ const OverviewPage = defineComponent({
                     h(NDataTable, { columns: riskColumns, data: d.risks, size: 'small', bordered: false }),
                 ] : null,
 
+                // 已恢复：原「告警」页唯一独有的内容，并到总览底部；逐次判定明细走「评估流水」
+                h('div', { class: 'sen-sec', style: 'display:flex;align-items:center;gap:10px' }, [
+                    `已恢复（最近 ${resolved.value.length} 条）`,
+                    h(NButton, { size: 'tiny', quaternary: true, style: 'margin-left:auto', onClick: () => router.push('/prom-logs') }, () => '评估流水 ›'),
+                ]),
+                resolved.value.length
+                    ? h(NDataTable, { columns: RESOLVED_EVENT_COLUMNS, data: resolved.value, size: 'small', bordered: false, pagination: { pageSize: 10 } })
+                    : h('div', { class: 'sen-card', style: 'border-style:dashed;opacity:.65;font-size:13px' }, '暂无已恢复的事件'),
             ]);
         });
     },
 });
 
-const AlertsPage = defineComponent({
-    setup() {
-        const router = VueRouter.useRouter();
-        const mode = ref('firing');
-        const events = ref([]);
-        const loading = ref(true);
-        let timer = null;
-        async function load() {
-            try { events.value = await api.get('/api/alert-events?status=' + mode.value) || []; } catch {}
-            loading.value = false;
-        }
-        watch(mode, () => { loading.value = true; load(); });
-        onMounted(() => { load(); timer = setInterval(load, 30000); });
-        onUnmounted(() => clearInterval(timer));
-
-        // 站点/SQL 类事件的"峰值"是整段错误文本，必须单行省略、悬停看全文——
-        // 否则一条 connection reset 的报错能把行高撑成一整块。
-        // "对象"列与规则名内容重复（prom 规则名自带 vm 前缀，站点检查两者相同），去掉。
-        const resolvedColumns = [
-            { title: '规则', key: 'check_name', ellipsis: { tooltip: true }, render: r => h('div', null, [
-                h('span', null, r.check_name),
-                r.detail ? h('span', { style: 'font-size:11px;font-family:monospace;opacity:.55;margin-left:8px' }, r.detail) : null,
-            ]) },
-            { title: '来源', key: 'source', width: 64, render: r => ({ prom: '指标', prom_target: '采集目标', health: '站点', cert: '证书', custom_sql: 'SQL' }[r.source] || r.source) },
-            { title: '峰值', key: 'peak_value', width: 170, render: r => {
-                const v = r.peak_value || r.value || '';
-                return h('span', {
-                    style: 'display:block;max-width:158px;font-family:monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' + (v.length > 24 ? ';cursor:help' : ''),
-                    title: v.length > 24 ? v : undefined,
-                }, v);
-            } },
-            { title: '首次触发', key: 'first_at', width: 130, render: r => (r.first_at || '').replace('T', ' ').slice(5, 16) },
-            { title: '持续', key: 'dur', width: 78, render: r => r.resolved_at ? fmtSince2(r.first_at, r.resolved_at) : '' },
-            { title: '恢复于', key: 'resolved_at', width: 130, render: r => (r.resolved_at || '').replace('T', ' ').slice(5, 16) },
-        ];
-        function fmtSince2(a, b) {
-            const m = Math.floor((new Date(b) - new Date(a)) / 60000);
-            if (m < 60) return m + ' 分钟';
-            const hrs = Math.floor(m / 60);
-            return hrs < 48 ? hrs + ' 小时' : Math.floor(hrs / 24) + ' 天';
-        }
-
-        return () => h('div', { class: 'page-body' }, [
-            h('div', { class: 'page-header' }, [
-                h('h3', { class: 'page-title' }, '告警'),
-                h('div', { style: 'display:flex;gap:8px;align-items:center' }, [
-                    h(NButton, { size: 'small', type: mode.value === 'firing' ? 'primary' : 'default', secondary: mode.value !== 'firing', onClick: () => mode.value = 'firing' }, () => '触发中'),
-                    h(NButton, { size: 'small', type: mode.value === 'resolved' ? 'primary' : 'default', secondary: mode.value !== 'resolved', onClick: () => mode.value = 'resolved' }, () => '已恢复'),
-                    h(NButton, { size: 'small', quaternary: true, onClick: () => router.push('/prom-logs') }, () => '评估流水 ›'),
-                ]),
-            ]),
-            h(NSpin, { show: loading.value }, () => {
-                if (mode.value === 'firing') {
-                    const groups = groupEvents(events.value);
-                    return groups.length
-                        ? h('div', null, groups.map(g => firingCard(router, g)))
-                        : h(NEmpty, { description: '当前没有触发中的告警', style: 'margin:60px 0' });
-                }
-                return events.value.length
-                    ? h(NDataTable, { columns: resolvedColumns, data: events.value, size: 'small', bordered: false })
-                    : h(NEmpty, { description: '暂无已恢复的事件', style: 'margin:60px 0' });
-            }),
-        ]);
-    },
-});
+// 已恢复事件表的列（总览页底部用）。
+// 站点/SQL 类事件的"峰值"是整段错误文本，必须单行省略、悬停看全文——
+// 否则一条 connection reset 的报错能把行高撑成一整块。
+function fmtSince2(a, b) {
+    const m = Math.floor((new Date(b) - new Date(a)) / 60000);
+    if (m < 60) return m + ' 分钟';
+    const hrs = Math.floor(m / 60);
+    return hrs < 48 ? hrs + ' 小时' : Math.floor(hrs / 24) + ' 天';
+}
+const RESOLVED_EVENT_COLUMNS = [
+    { title: '规则', key: 'check_name', ellipsis: { tooltip: true }, render: r => h('div', null, [
+        h('span', null, r.check_name),
+        r.detail ? h('span', { style: 'font-size:11px;font-family:monospace;opacity:.55;margin-left:8px' }, r.detail) : null,
+    ]) },
+    { title: '来源', key: 'source', width: 72, render: r => ({ prom: '指标', prom_target: '采集目标', health: '站点', cert: '证书', custom_sql: 'SQL' }[r.source] || r.source) },
+    { title: '峰值', key: 'peak_value', width: 170, render: r => {
+        const v = r.peak_value || r.value || '';
+        return h('span', {
+            style: 'display:block;max-width:158px;font-family:monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' + (v.length > 24 ? ';cursor:help' : ''),
+            title: v.length > 24 ? v : undefined,
+        }, v);
+    } },
+    { title: '首次触发', key: 'first_at', width: 130, render: r => (r.first_at || '').replace('T', ' ').slice(5, 16) },
+    { title: '持续', key: 'dur', width: 78, render: r => r.resolved_at ? fmtSince2(r.first_at, r.resolved_at) : '' },
+    { title: '恢复于', key: 'resolved_at', width: 130, render: r => (r.resolved_at || '').replace('T', ' ').slice(5, 16) },
+];
 
 // 对象列表列的关键水位：按指标名匹配，稳定（规则名可改，指标名不会）
 const OBJ_METRIC_COLS = [
@@ -5857,7 +5827,7 @@ const routes = [
     { path: '/', redirect: '/overview' },
     { path: '/login', component: LoginPage },
     { path: '/overview', component: OverviewPage },
-    { path: '/alerts', component: AlertsPage },
+    { path: '/alerts', redirect: '/overview' },
     { path: '/objects', component: ObjectsPage },
     { path: '/objects/:id', component: ObjectDetailPage },
     { path: '/dashboard', component: DashboardPage },
