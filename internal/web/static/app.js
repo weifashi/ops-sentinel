@@ -5709,7 +5709,9 @@ const ObjectDetailPage = defineComponent({
             return h('div', { class: 'page-body' }, [
                 h('div', { class: 'obj-head' }, [
                     h('div', { class: 'obj-head-main' }, [
-                        h(NButton, { size: 'small', quaternary: true, circle: true, onClick: () => router.push('/objects'), title: '返回对象列表' }, () => '‹'),
+                        h(NButton, { size: 'medium', secondary: true, circle: true, class: 'obj-back', onClick: () => router.push('/objects'), title: '返回对象列表' },
+                            () => h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' },
+                                [h('path', { d: 'M15 18l-6-6 6-6' })])),
                         // 标题即下拉：可搜索、直接切到另一台；选中态只显示名字，状态标签由右侧统一给
                         objectOptions.value.length > 1 ? h('div', { class: 'obj-title-select' }, [h(NSelect, {
                             value: o.id, options: objectOptions.value, filterable: true, size: 'large',
@@ -5734,7 +5736,7 @@ const ObjectDetailPage = defineComponent({
                     const cards = kpis.map(k => {
                         const v = k.check.value;
                         let caption = k.check.matched ? '▲ 触发中' : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold);
-                        if (k.label === '内存' && o.mem_total) caption = `已用 ${fmtGB(v * o.mem_total / 100)} / 共 ${fmtGB(o.mem_total)}`;
+                        if (k.label === '内存' && o.mem_total) caption = `已用 ${(v * o.mem_total / 100 / 1073741824).toFixed(1)} / 共 ${fmtGB(o.mem_total)}`;
                         return { label: k.label, value: (Math.round(v * 10) / 10) + (k.pct ? '%' : ''), caption,
                             tone: k.check.matched ? 'crit' : (k.check.risk ? 'warn' : '') };
                     });

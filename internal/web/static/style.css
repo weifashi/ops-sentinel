@@ -788,7 +788,8 @@ html {
 
 /* 对象详情页头：标题下拉 + 状态 + 元信息胶囊 + KPI 行 */
 .obj-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-.obj-head-main { display: flex; align-items: center; gap: 10px; }
+.obj-head-main { display: flex; align-items: center; gap: 12px; }
+.obj-head-main .obj-back { width: 38px; height: 38px; flex: none; }
 .obj-title-select { min-width: 240px; }
 .obj-title-select .n-base-selection { --n-font-size: 20px; --n-height: 42px; font-weight: 750; }
 .obj-title-select .n-base-selection .n-base-selection-label { background: transparent; }
@@ -799,7 +800,7 @@ html {
 .obj-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px;
     font-family: ui-monospace, monospace; background: rgba(128,128,128,.10); }
 .obj-chip-k { opacity: .55; font-family: inherit; }
-.obj-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0 0 22px; }
+.obj-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; margin: 0 0 22px; }
 .obj-kpis .sen-kpi { min-width: 0; padding: 14px 18px; }
 .obj-kpis .k-value { font-size: 26px; }
 .obj-kpis .k-value.k-small { font-size: 17px; }
