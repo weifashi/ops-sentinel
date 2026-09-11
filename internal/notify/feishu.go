@@ -116,10 +116,7 @@ func SendFeishuCard(cfg store.FeishuConfig, card *AlertCard, baseURL string) err
 	if code := strings.TrimSpace(card.Code); code != "" {
 		elements = append(elements,
 			map[string]any{"tag": "hr"},
-			map[string]any{
-				"tag":  "div",
-				"text": map[string]string{"tag": "lark_md", "content": "```text\n" + sanitizeCodeFence(truncateFeishuCodeBlock(code, 2600)) + "\n```"},
-			})
+			feishuCodeElement(truncateFeishuCodeBlock(code, 2600)))
 	}
 	if url := card.detailURL(baseURL); url != "" {
 		elements = append(elements, map[string]any{
@@ -184,12 +181,10 @@ func buildFeishuCard(message string, level string) map[string]any {
 		elements = append(elements,
 			map[string]any{"tag": "hr"},
 			map[string]any{
-				"tag": "div",
-				"text": map[string]string{
-					"tag":     "lark_md",
-					"content": "**" + escapeLarkMarkdown(codeTitle) + "**\n```text\n" + sanitizeCodeFence(codeText) + "\n```",
-				},
+				"tag":  "div",
+				"text": map[string]string{"tag": "lark_md", "content": "**" + escapeLarkMarkdown(codeTitle) + "**"},
 			},
+			feishuCodeElement(codeText),
 		)
 	}
 	if len(elements) == 0 {
@@ -344,8 +339,15 @@ func escapeLarkMarkdown(s string) string {
 	return replacer.Replace(s)
 }
 
-func sanitizeCodeFence(s string) string {
-	return strings.ReplaceAll(strings.TrimSpace(s), "```", "` ` `")
+// feishuCodeElement 把日志/SQL/诊断这类原文放进卡片。
+// 用 plain_text 而不是 lark_md 的 ``` 围栏：飞书卡片的 lark_md 不渲染围栏代码块，
+// 三个反引号会原样显示成 "```text"，而原文里的 * _ ` 又会被当成 markdown，
+// 堆栈里的 (*processor) 变成斜体、下划线字段名被吞掉。plain_text 原样呈现并保留换行。
+func feishuCodeElement(code string) map[string]any {
+	return map[string]any{
+		"tag":  "div",
+		"text": map[string]string{"tag": "plain_text", "content": strings.TrimSpace(code)},
+	}
 }
 
 func truncateFeishuCodeBlock(s string, maxLen int) string {
