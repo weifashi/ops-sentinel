@@ -101,6 +101,11 @@ type promMetricState struct {
 	LastValue          float64
 	HasLast            bool
 
+	// delta 表达式用：上一轮的原始累计值。与 LastValue 分开存，
+	// LastValue 在 delta 规则里保存的是换算后的增量，供 sustained/increase 策略用。
+	LastRaw    float64
+	HasLastRaw bool
+
 	// 下面两个只用于控制写库频率，不参与告警判定
 	LastLoggedStatus string
 	LastLoggedAt     time.Time
@@ -407,6 +412,17 @@ func (m *PromManager) evaluate(target *store.PromTarget, check *store.PromCheck,
 
 	state := m.metricState(check.ID)
 
+	// delta 表达式：把累计计数器换算成"本轮相对上轮的新增"。第一轮只建基线、不出值，
+	// 否则趋势图会先出一个等于累计值的假尖峰。
+	if isDeltaKind(check) {
+		d, ok := counterDelta(state, value)
+		if !ok {
+			m.setSnap(check.ID, PromSnap{Err: "首次采集，建立增量基线"})
+			return
+		}
+		value = d
+	}
+
 	// 仅观测：存快照供趋势图采样，跳过告警判定与事件/通知
 	if check.ObserveOnly {
 		state.LastValue, state.HasLast = value, true
@@ -669,7 +685,33 @@ func (m *PromManager) TestCheck(target *store.PromTarget, check *store.PromCheck
 	}
 	// 测试不写入状态，用临时 state 保证幂等
 	matched, reason := evaluatePromRule(value, check, &promMetricState{})
+	if isDeltaKind(check) {
+		reason = "增量表达式要两轮采集才有值，测试显示的是原始累计值；" + reason
+	}
 	return formatPromValue(value), matched, reason, nil
+}
+
+// isDeltaKind：expr_kind 为 delta 的规则，把累计计数器（*_total）换算成每采集周期的新增。
+// 与 increase 策略的区别：increase 只拿增量去判定、存下来和画图的仍是累计值，
+// 观测型规则的趋势图就成了一条只会往上走的线；delta 让"当前值"本身就是新增量。
+func isDeltaKind(check *store.PromCheck) bool {
+	return strings.EqualFold(strings.TrimSpace(check.ExprKind), "delta")
+}
+
+// counterDelta 返回本轮相对上轮的增量；第一轮没有基线返回 ok=false。
+// 计数器归零（采集器状态丢失、容器重建）时 raw < prev，本轮增量按 raw 本身算，
+// 而不是报一个负数。
+func counterDelta(st *promMetricState, raw float64) (float64, bool) {
+	prev, had := st.LastRaw, st.HasLastRaw
+	st.LastRaw, st.HasLastRaw = raw, true
+	if !had {
+		return 0, false
+	}
+	d := raw - prev
+	if d < 0 {
+		d = raw
+	}
+	return d, true
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +850,7 @@ func parsePromFloat(s string) (float64, error) {
 // 支持三种表达式：
 //
 //	raw             直接聚合 metric
+//	delta           先按 raw 聚合，再在 evaluate 里换算成相对上轮的增量（见 counterDelta）
 //	ratio           metric / denominator
 //	available_ratio 1 - metric/denominator，用于"剩余率"到"使用率"的翻转
 func computePromValue(check *store.PromCheck, families map[string][]promSample) (float64, string, error) {
@@ -817,7 +860,7 @@ func computePromValue(check *store.PromCheck, families map[string][]promSample) 
 	}
 
 	kind := strings.ToLower(strings.TrimSpace(check.ExprKind))
-	if kind == "" || kind == "raw" {
+	if kind == "" || kind == "raw" || kind == "delta" {
 		return numerator, detail, nil
 	}
 

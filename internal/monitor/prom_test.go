@@ -426,3 +426,28 @@ func TestAbsentAsZero(t *testing.T) {
 		t.Fatal("up=0 对 lt 1 应命中")
 	}
 }
+
+// delta 表达式：第一轮只建基线；之后给增量；计数器归零按当前值算。
+func TestCounterDelta(t *testing.T) {
+	st := &promMetricState{}
+	if _, ok := counterDelta(st, 100); ok {
+		t.Fatal("first sample should only establish baseline")
+	}
+	if d, ok := counterDelta(st, 130); !ok || d != 30 {
+		t.Fatalf("delta = %v ok=%v, want 30", d, ok)
+	}
+	if d, ok := counterDelta(st, 130); !ok || d != 0 {
+		t.Fatalf("no growth delta = %v, want 0", d)
+	}
+	if d, ok := counterDelta(st, 7); !ok || d != 7 {
+		t.Fatalf("counter reset delta = %v, want 7", d)
+	}
+	if !isDeltaKind(&store.PromCheck{ExprKind: " Delta "}) || isDeltaKind(&store.PromCheck{ExprKind: "raw"}) {
+		t.Fatal("isDeltaKind")
+	}
+	// delta 在 computePromValue 阶段与 raw 等价（换算在 evaluate 里做）
+	families := map[string][]promSample{"c": {{Value: 5}}}
+	if v, _, err := computePromValue(&store.PromCheck{Metric: "c", ExprKind: "delta"}, families); err != nil || v != 5 {
+		t.Fatalf("delta compute = %v err %v", v, err)
+	}
+}

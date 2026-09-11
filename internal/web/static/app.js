@@ -2714,6 +2714,7 @@ const PROM_AGGREGATES = [
 
 const PROM_EXPR_KINDS = [
     { label: '直接取值', value: 'raw' },
+    { label: '增量 = 本次 − 上次采集（累计计数器换算成每周期新增）', value: 'delta' },
     { label: '比率 = 指标 / 分母 × 100', value: 'ratio' },
     { label: '使用率 = (1 - 指标/分母) × 100', value: 'available_ratio' },
 ];

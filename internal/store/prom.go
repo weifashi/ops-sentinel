@@ -37,7 +37,8 @@ type PromCheck struct {
 	LabelFilter string `json:"label_filter"` // 标签过滤，如 device="sda2",mountpoint="/"
 	Aggregate   string `json:"aggregate"`    // last / sum / avg / max / min / count
 
-	// 表达式：raw 直接取值；ratio 为 metric / expr_denominator；
+	// 表达式：raw 直接取值；delta 为相对上轮采集的增量（累计计数器换算成每周期新增）；
+	// ratio 为 metric / expr_denominator；
 	// available_ratio 为 (1 - metric/denominator)，用于"可用率"类指标
 	ExprKind        string `json:"expr_kind"`
 	ExprDenominator string `json:"expr_denominator"`
