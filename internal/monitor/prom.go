@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"ops-sentinel/internal/notify"
 	"ops-sentinel/internal/store"
@@ -43,7 +44,7 @@ type PromManager struct {
 	// 规则只会静默进 error，这里把「目标不可达」升级成正式告警。
 	thMu          sync.Mutex
 	targetHealths map[int64]*targetHealth
-	states  map[int64]*promMetricState
+	states        map[int64]*promMetricState
 
 	// 每条规则最近一次求值的实时快照，供"监控对象/容量风险"接口用。
 	// 从内存读而不是查流水表：更新鲜（流水写入已限流到 10 分钟心跳）、零查询成本。
@@ -106,6 +107,11 @@ type promMetricState struct {
 	LastRaw    float64
 	HasLastRaw bool
 
+	// 增长类规则用：各序列上一轮的值，用来找出"这一轮是谁涨了"。
+	// sum 聚合的来源默认取累计值最大的序列，对累计计数器来说永远是历史最多的那个，
+	// 而不是刚刚新增错误的那个（nginx 累计 22 条会一直盖住 main 新增的 1 条）。
+	LastSeries map[string]float64
+
 	// 下面两个只用于控制写库频率，不参与告警判定
 	LastLoggedStatus string
 	LastLoggedAt     time.Time
@@ -133,13 +139,13 @@ func shouldLogPromResult(st *promMetricState, status string, now time.Time) bool
 func NewPromManager(s *store.Store, d *notify.Dispatcher, eb *EventBus) *PromManager {
 	return &PromManager{
 		targetHealths: make(map[int64]*targetHealth),
-		store:      s,
-		dispatcher: d,
-		eventBus:   eb,
-		monitors:   make(map[int64]context.CancelFunc),
-		states:     make(map[int64]*promMetricState),
-		snapshot:   make(map[int64]PromSnap),
-		hostPrev:   make(map[int64]*hostPrev),
+		store:         s,
+		dispatcher:    d,
+		eventBus:      eb,
+		monitors:      make(map[int64]context.CancelFunc),
+		states:        make(map[int64]*promMetricState),
+		snapshot:      make(map[int64]PromSnap),
+		hostPrev:      make(map[int64]*hostPrev),
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -374,12 +380,18 @@ func (m *PromManager) fetchDiagnostic(diagURL string) string {
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	// 样本口返回的是"最近 N 行"，最新的错误在末尾。此前只读前 8KB 再保尾 2000 字，
+	// 样本口一旦超过 8KB（:9101 固定吐 12KB），真正最新的几行反而永远进不了通知。
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	out := strings.TrimSpace(string(body))
-	// 飞书文本消息别撑爆：截到约 2000 字符，保尾部（最新的错误在后面）
+	// 飞书文本消息别撑爆：截到约 2000 字节，保尾部；按 rune 边界切，别把中文切成半个
 	const cap = 2000
 	if len(out) > cap {
-		out = "…" + out[len(out)-cap:]
+		cut := len(out) - cap
+		for cut < len(out) && !utf8.RuneStart(out[cut]) {
+			cut++
+		}
+		out = "…" + out[cut:]
 	}
 	return out
 }
@@ -411,6 +423,11 @@ func (m *PromManager) evaluate(target *store.PromTarget, check *store.PromCheck,
 	}
 
 	state := m.metricState(check.ID)
+
+	// 增长类规则（increase 策略或 delta 表达式）的来源改为"本轮增量最大的序列"
+	if strings.EqualFold(strings.TrimSpace(check.AlertStrategy), "increase") || isDeltaKind(check) {
+		detail = growthDetail(check, families, state, detail)
+	}
 
 	// delta 表达式：把累计计数器换算成"本轮相对上轮的新增"。第一轮只建基线、不出值，
 	// 否则趋势图会先出一个等于累计值的假尖峰。
@@ -608,8 +625,8 @@ func (m *PromManager) onScrapeResult(target *store.PromTarget, scrapeErr error) 
 			m.store.UpsertFiringEvent(&store.AlertEvent{
 				Source: "prom_target", CheckID: target.ID,
 				CheckName: target.Name + " 采集目标不可达",
-				Title:    target.Name + " 采集目标不可达",
-				TargetID: target.ID, TargetName: target.Name,
+				Title:     target.Name + " 采集目标不可达",
+				TargetID:  target.ID, TargetName: target.Name,
 				Dimension: "target", Severity: "critical",
 				Value: scrapeErr.Error(), Threshold: "", Message: card.PlainText(""),
 			}, notified)
@@ -712,6 +729,66 @@ func counterDelta(st *promMetricState, raw float64) (float64, bool) {
 		d = raw
 	}
 	return d, true
+}
+
+// growthDetail 找出本轮相对上轮增量最大的序列作为来源；没有任何序列增长（或没有上轮）时沿用 fallback。
+// 顺带把本轮各序列的值存进 state.LastSeries 供下一轮比较。
+func growthDetail(check *store.PromCheck, families map[string][]promSample, st *promMetricState, fallback string) string {
+	samples, ok := families[strings.TrimSpace(check.Metric)]
+	if !ok {
+		return fallback
+	}
+	filters := parseLabelFilter(check.LabelFilter)
+	cur := map[string]promSample{}
+	for _, sm := range samples {
+		if matchLabels(sm.Labels, filters) {
+			cur[labelKey(sm.Labels)] = sm
+		}
+	}
+	prev := st.LastSeries
+	st.LastSeries = make(map[string]float64, len(cur))
+	for k, sm := range cur {
+		st.LastSeries[k] = sm.Value
+	}
+	if prev == nil {
+		return fallback
+	}
+	// 单样本且带过滤条件：来源没有信息量，和 aggregateMetric 的口径一致
+	if len(cur) < 2 && strings.TrimSpace(check.LabelFilter) != "" {
+		return fallback
+	}
+	bestKey, bestDelta := "", 0.0
+	for k, sm := range cur {
+		last, had := prev[k]
+		d := sm.Value
+		if had {
+			d = sm.Value - last
+		}
+		if d > bestDelta {
+			bestKey, bestDelta = k, d
+		}
+	}
+	if bestKey == "" {
+		return fallback
+	}
+	return formatSampleLabels(cur[bestKey].Labels)
+}
+
+// labelKey 把标签压成稳定的字符串键（按名排序），用于跨轮次对齐同一条序列。
+func labelKey(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(labels[k])
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 // ---------------------------------------------------------------------------

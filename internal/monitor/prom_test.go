@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"strings"
 	"math"
 	"testing"
 	"time"
@@ -449,5 +450,29 @@ func TestCounterDelta(t *testing.T) {
 	families := map[string][]promSample{"c": {{Value: 5}}}
 	if v, _, err := computePromValue(&store.PromCheck{Metric: "c", ExprKind: "delta"}, families); err != nil || v != 5 {
 		t.Fatalf("delta compute = %v err %v", v, err)
+	}
+}
+
+// 增长类规则的来源应指向本轮增量最大的序列，而不是累计值最大的序列。
+func TestGrowthDetail(t *testing.T) {
+	check := &store.PromCheck{Metric: "errs", LabelFilter: `kind="error"`, AlertStrategy: "increase"}
+	mk := func(nginx, app float64) map[string][]promSample {
+		return map[string][]promSample{"errs": {
+			{Labels: map[string]string{"container": "nginx", "kind": "error"}, Value: nginx},
+			{Labels: map[string]string{"container": "main:app", "kind": "error"}, Value: app},
+		}}
+	}
+	st := &promMetricState{}
+	if d := growthDetail(check, mk(22, 0), st, "fb"); d != "fb" {
+		t.Fatalf("first round should fall back, got %q", d)
+	}
+	if d := growthDetail(check, mk(22, 1), st, "fb"); !strings.Contains(d, "main:app") {
+		t.Fatalf("second round should point to the grown series, got %q", d)
+	}
+	if d := growthDetail(check, mk(22, 1), st, "fb"); d != "fb" {
+		t.Fatalf("no growth should fall back, got %q", d)
+	}
+	if d := growthDetail(check, mk(25, 1), st, "fb"); !strings.Contains(d, "nginx") {
+		t.Fatalf("nginx grew by 3, got %q", d)
 	}
 }
