@@ -175,3 +175,26 @@ func TestValidateCustomSQLStringLiteralsAreNotKeywords(t *testing.T) {
 		}
 	}
 }
+
+// 自定义 SQL 的增长策略也要尊重 alert_consecutive：单轮尖峰不响，连续 N 轮才响，中间断一轮重新计数。
+func TestCustomSQLIncreaseHonorsConsecutive(t *testing.T) {
+	cfg := &store.CustomSQLCheck{AlertStrategy: "increase", AlertDeltaValue: "20", AlertConsecutive: 2, ResultField: "slow"}
+	st := &healthMetricState{}
+	step := func(v string) bool { m, _ := EvaluateCustomSQLRule(v, cfg, st); return m }
+	step("100") // 基线
+	if step("130") {
+		t.Fatal("first growth round must not alert with consecutive=2")
+	}
+	if !step("160") {
+		t.Fatal("second consecutive growth round should alert")
+	}
+	if step("165") { // 增量 5 < 20，归零
+		t.Fatal("small increase should reset and not alert")
+	}
+	if step("200") {
+		t.Fatal("counter must restart after a miss")
+	}
+	if !step("240") {
+		t.Fatal("two consecutive hits after reset should alert again")
+	}
+}

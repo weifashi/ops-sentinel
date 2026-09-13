@@ -895,7 +895,16 @@ func EvaluateCustomSQLRule(value string, cfg *store.CustomSQLCheck, st *healthMe
 		matched, msg := evaluateCustomSQLIncreaseRule(current, field, cfg, st, thresholdConfigured, thresholdMatched)
 		st.HasLast = true
 		st.LastValue = current
-		return matched, msg
+		// 增长策略同样尊重"连续 N 次"（与 sustained 一致）：此前一命中就告警，规则里填的连续次数形同虚设。
+		if matched {
+			st.ConsecutiveMatched++
+		} else {
+			st.ConsecutiveMatched = 0
+		}
+		if consecutive > 1 {
+			msg = fmt.Sprintf("%s（连续 %d/%d 次）", msg, st.ConsecutiveMatched, consecutive)
+		}
+		return matched && st.ConsecutiveMatched >= consecutive, msg
 	case "continuous_increase":
 		if strings.TrimSpace(value) == "" {
 			return false, fmt.Sprintf("%s 连续上升等待有效数值，当前值为空", field)
