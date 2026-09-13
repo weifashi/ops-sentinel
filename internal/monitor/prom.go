@@ -1130,24 +1130,38 @@ func evaluatePromRule(value float64, check *store.PromCheck, st *promMetricState
 			return false, fmt.Sprintf("无增长（增量 %s）", formatPromValue(delta))
 		}
 
+		hit, hitMsg := false, ""
 		if dv := strings.TrimSpace(check.AlertDeltaValue); dv != "" {
 			limit, err := strconv.ParseFloat(dv, 64)
 			if err == nil && delta >= limit {
-				return true, fmt.Sprintf("增量 %s 达到阈值 %s（上次 %s，当前 %s）",
+				hit, hitMsg = true, fmt.Sprintf("增量 %s 达到阈值 %s（上次 %s，当前 %s）",
 					formatPromValue(delta), dv, formatPromValue(st.LastValue), formatPromValue(value))
 			}
 		}
-		if dp := strings.TrimSpace(check.AlertDeltaPercent); dp != "" {
+		if dp := strings.TrimSpace(check.AlertDeltaPercent); !hit && dp != "" {
 			limit, err := strconv.ParseFloat(dp, 64)
 			if err == nil && st.LastValue != 0 {
 				pct := delta / math.Abs(st.LastValue) * 100
 				if pct >= limit {
-					return true, fmt.Sprintf("增幅 %.2f%% 达到阈值 %s%%（上次 %s，当前 %s）",
+					hit, hitMsg = true, fmt.Sprintf("增幅 %.2f%% 达到阈值 %s%%（上次 %s，当前 %s）",
 						pct, dp, formatPromValue(st.LastValue), formatPromValue(value))
 				}
 			}
 		}
-		return false, fmt.Sprintf("增量 %s 未达阈值", formatPromValue(delta))
+		// 增长策略同样尊重"连续 N 次"：此前这里一命中就告警，规则里填的连续次数形同虚设，
+		// 数据库 VM 每 5 分钟归档 binlog 挤出一分钟 swap 就响一次。要求连续 N 轮都在增长才算持续。
+		if hit {
+			st.ConsecutiveMatched++
+		} else {
+			st.ConsecutiveMatched = 0
+		}
+		if !hit {
+			return false, fmt.Sprintf("增量 %s 未达阈值", formatPromValue(delta))
+		}
+		if consecutive > 1 {
+			hitMsg = fmt.Sprintf("%s（连续 %d/%d 次）", hitMsg, st.ConsecutiveMatched, consecutive)
+		}
+		return st.ConsecutiveMatched >= consecutive, hitMsg
 
 	default: // threshold
 		return thresholdMatched, thresholdMsg

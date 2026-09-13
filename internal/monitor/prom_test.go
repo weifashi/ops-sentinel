@@ -1,8 +1,8 @@
 package monitor
 
 import (
-	"strings"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -474,5 +474,32 @@ func TestGrowthDetail(t *testing.T) {
 	}
 	if d := growthDetail(check, mk(25, 1), st, "fb"); !strings.Contains(d, "nginx") {
 		t.Fatalf("nginx grew by 3, got %q", d)
+	}
+}
+
+// 增长策略要尊重 alert_consecutive：单轮尖峰不响，连续 N 轮增长才响；中间断一轮重新计数。
+func TestIncreaseStrategyHonorsConsecutive(t *testing.T) {
+	check := &store.PromCheck{AlertStrategy: "increase", AlertDeltaValue: "100", AlertConsecutive: 3}
+	st := &promMetricState{}
+	step := func(v float64) bool {
+		m, _ := evaluatePromRule(v, check, st)
+		st.LastValue, st.HasLast = v, true
+		return m
+	}
+	step(0) // 基线
+	if step(200) || step(400) {
+		t.Fatal("first two growth rounds must not alert with consecutive=3")
+	}
+	if !step(600) {
+		t.Fatal("third consecutive growth round should alert")
+	}
+	if step(610) { // 增量 10 < 100，计数归零
+		t.Fatal("small increase should reset and not alert")
+	}
+	if step(800) || step(1000) {
+		t.Fatal("counter must restart from zero after a miss")
+	}
+	if !step(1200) {
+		t.Fatal("three consecutive hits after reset should alert again")
 	}
 }
