@@ -5383,10 +5383,15 @@ function objMetricCell(o, def) {
         ? `已用 ${fmtGB(o.fs_total - o.fs_avail)} · 可用 ${fmtGB(o.fs_avail)} · 共 ${fmtGB(o.fs_total)}`
         : '';
     const tip = [memTip, fsTip, c.detail].filter(Boolean).join('\n');
-    return h('span', {
+    const cell = h('span', {
         style: `font-family:monospace;${color ? 'color:' + color + ';font-weight:700' : ''}${tip ? ';cursor:help;border-bottom:1px dotted currentColor' : ''}`,
-        title: tip || undefined,
     }, v + (def.pct ? '%' : ''));
+    if (!tip) return cell;
+    // 用页面内的悬浮提示而不是原生 title：原生的要停一秒才出、在桌面壳里经常不显示
+    return h(NTooltip, { style: 'max-width:520px' }, {
+        trigger: () => cell,
+        default: () => h('div', { style: 'white-space:pre-line;font-family:monospace;font-size:12px' }, tip),
+    });
 }
 
 function objStatusTag(o) {
