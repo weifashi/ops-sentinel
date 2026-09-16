@@ -108,6 +108,11 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 		h.MemPct = clampPct(100 * (1 - avail/total))
 		h.MemTotal = total
 	}
+	// 根分区容量：只取 mountpoint="/" 那一行，卡片据此显示 已用/可用/共，而不只有百分比
+	if total := rootFSValue(families["node_filesystem_size_bytes"]); total > 0 {
+		h.FSTotal = total
+		h.FSAvail = rootFSValue(families["node_filesystem_avail_bytes"])
+	}
 	h.DiskReadBps = rate(prev.diskRead, cur.diskRead)
 	h.DiskWriteBps = rate(prev.diskWrite, cur.diskWrite)
 	h.DiskIOPS = rate(prev.diskOps, cur.diskOps)
@@ -122,6 +127,16 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 	if err := m.store.InsertHostSample(target.ID, &h); err != nil {
 		log.Printf("[prom] host sample %s: %v", target.Name, err)
 	}
+}
+
+// rootFSValue 取 mountpoint="/" 的样本值；没有就返回 0（比如容器化的 node_exporter 没挂根分区）。
+func rootFSValue(ss []promSample) float64 {
+	for _, s := range ss {
+		if s.Labels["mountpoint"] == "/" {
+			return s.Value
+		}
+	}
+	return 0
 }
 
 func firstValue(ss []promSample) float64 {

@@ -5378,7 +5378,11 @@ function objMetricCell(o, def) {
     const memTip = def.metric === 'node_memory_MemAvailable_bytes' && o.mem_total
         ? `已用 ${fmtGB(c.value * o.mem_total / 100)} · 可用 ${fmtGB((100 - c.value) * o.mem_total / 100)} · 共 ${fmtGB(o.mem_total)}`
         : '';
-    const tip = [memTip, c.detail].filter(Boolean).join('\n');
+    // 根分区列：有容量时悬停给出 已用 / 可用 / 共（容量来自主机资源采样的 mountpoint=/）
+    const fsTip = def.metric === 'node_filesystem_avail_bytes' && o.fs_total
+        ? `已用 ${fmtGB(o.fs_total - o.fs_avail)} · 可用 ${fmtGB(o.fs_avail)} · 共 ${fmtGB(o.fs_total)}`
+        : '';
+    const tip = [memTip, fsTip, c.detail].filter(Boolean).join('\n');
     return h('span', {
         style: `font-family:monospace;${color ? 'color:' + color + ';font-weight:700' : ''}${tip ? ';cursor:help;border-bottom:1px dotted currentColor' : ''}`,
         title: tip || undefined,
@@ -5733,6 +5737,7 @@ const ObjectDetailPage = defineComponent({
                         const v = k.check.value;
                         let caption = k.check.matched ? '▲ 触发中' : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold);
                         if (k.label === '内存' && o.mem_total) caption = `已用 ${(v * o.mem_total / 100 / 1073741824).toFixed(1)} / 共 ${fmtGB(o.mem_total)}`;
+                        if (k.label === '根分区' && o.fs_total) caption = `已用 ${fmtGB(o.fs_total - o.fs_avail)} / 共 ${fmtGB(o.fs_total)} · 可用 ${fmtGB(o.fs_avail)}`;
                         return { label: k.label, value: (Math.round(v * 10) / 10) + (k.pct ? '%' : ''), caption,
                             tone: k.check.matched ? 'crit' : (k.check.risk ? 'warn' : '') };
                     });

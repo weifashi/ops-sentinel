@@ -105,6 +105,8 @@ type objectView struct {
 	Checks   []objCheck        `json:"checks"`
 	Interval int               `json:"interval_sec"`
 	MemTotal float64           `json:"mem_total,omitempty"` // 总内存字节（来自最新主机采样），列表悬停换算 GB
+	FSTotal  float64           `json:"fs_total,omitempty"`  // 根分区总字节（最新主机采样）
+	FSAvail  float64           `json:"fs_avail,omitempty"`  // 根分区可用字节
 }
 
 func (s *Server) buildObjects() ([]objectView, error) {
@@ -139,6 +141,8 @@ func (s *Server) buildObjects() ([]objectView, error) {
 		}
 		if hs, ok := latest[t.ID]; ok {
 			ov.MemTotal = hs.MemTotal
+			ov.FSTotal = hs.FSTotal
+			ov.FSAvail = hs.FSAvail
 		}
 		for _, c := range ov.Checks {
 			if c.Matched {
