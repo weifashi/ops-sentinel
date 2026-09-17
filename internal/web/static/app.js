@@ -5379,6 +5379,17 @@ function capTip(pct, limit) {
     if (!limit) return '';
     return `已用 ${fmtGB(pct * limit / 100)} · 可用 ${fmtGB((100 - pct) * limit / 100)} · 共 ${fmtGB(limit)}`;
 }
+// 值是否已经越过阈值。sustained 规则要连续 N 轮才算命中，中间这段
+// 值已经超标但 matched 还是 false，此时说"接近阈值"是错的。
+function crossedThreshold(c) {
+    const thr = parseFloat(c.threshold);
+    if (isNaN(thr)) return false;
+    if (c.condition === 'gt') return c.value > thr;
+    if (c.condition === 'gte') return c.value >= thr;
+    if (c.condition === 'lt') return c.value < thr;
+    if (c.condition === 'lte') return c.value <= thr;
+    return false;
+}
 function objMetricCell(o, def) {
     const c = objCheckOf(o, def);
     if (!c) return h('span', { style: 'opacity:.3' }, '–');
@@ -5800,7 +5811,9 @@ const ObjectDetailPage = defineComponent({
                     const last = res.value.length ? res.value[res.value.length - 1] : null;
                     const cards = kpis.map(k => {
                         const v = k.check.value;
-                        let caption = k.check.matched ? '▲ 触发中' : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold);
+                        let caption = k.check.matched ? '▲ 触发中'
+                            : (crossedThreshold(k.check) ? '已超阈值 ' + k.check.threshold + '，待持续'
+                                : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold));
                         if (k.label === '内存' && o.mem_total) caption = `已用 ${(v * o.mem_total / 100 / 1073741824).toFixed(1)} / 共 ${fmtGB(o.mem_total)}`;
                         if (k.label === '根分区' && o.fs_total) caption = `已用 ${fmtGB(o.fs_total - o.fs_avail)} / 共 ${fmtGB(o.fs_total)} · 可用 ${fmtGB(o.fs_avail)}`;
                         if (k.label === '容器最高') {
