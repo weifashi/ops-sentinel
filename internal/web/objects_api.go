@@ -95,19 +95,21 @@ func buildObjChecks(checks []store.PromCheck, snap map[int64]monitor.PromSnap) [
 }
 
 type objectView struct {
-	ID       int64             `json:"id"`
-	Name     string            `json:"name"`
-	Kind     string            `json:"kind"`
-	Labels   map[string]string `json:"labels"`
-	Running  bool              `json:"running"`
-	Status   string            `json:"status"` // firing / risk / ok / stale
-	Firing   int               `json:"firing"`
-	Risks    int               `json:"risks"`
-	Checks   []objCheck        `json:"checks"`
-	Interval int               `json:"interval_sec"`
-	MemTotal float64           `json:"mem_total,omitempty"` // 总内存字节（来自最新主机采样），列表悬停换算 GB
-	FSTotal  float64           `json:"fs_total,omitempty"`  // 根分区总字节（最新主机采样）
-	FSAvail  float64           `json:"fs_avail,omitempty"`  // 根分区可用字节
+	ID           int64             `json:"id"`
+	Name         string            `json:"name"`
+	Kind         string            `json:"kind"`
+	Labels       map[string]string `json:"labels"`
+	Running      bool              `json:"running"`
+	Status       string            `json:"status"` // firing / risk / ok / stale
+	Firing       int               `json:"firing"`
+	Risks        int               `json:"risks"`
+	Checks       []objCheck        `json:"checks"`
+	Interval     int               `json:"interval_sec"`
+	MemTotal     float64           `json:"mem_total,omitempty"`      // 总内存字节（来自最新主机采样），列表悬停换算 GB
+	FSTotal      float64           `json:"fs_total,omitempty"`       // 根分区总字节（最新主机采样）
+	FSAvail      float64           `json:"fs_avail,omitempty"`       // 根分区可用字节
+	CtrWsLimit   float64           `json:"ctr_ws_limit,omitempty"`   // 容器内存占比最高者的上限（working_set 口径）
+	CtrAnonLimit float64           `json:"ctr_anon_limit,omitempty"` // 同上，anon 口径
 }
 
 func (s *Server) buildObjects() ([]objectView, error) {
@@ -144,6 +146,8 @@ func (s *Server) buildObjects() ([]objectView, error) {
 			ov.MemTotal = hs.MemTotal
 			ov.FSTotal = hs.FSTotal
 			ov.FSAvail = hs.FSAvail
+			ov.CtrWsLimit = hs.CtrWsLimit
+			ov.CtrAnonLimit = hs.CtrAnonLimit
 		}
 		for _, c := range ov.Checks {
 			if c.Matched {

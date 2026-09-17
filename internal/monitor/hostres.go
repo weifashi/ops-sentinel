@@ -113,6 +113,11 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 		h.FSTotal = total
 		h.FSAvail = rootFSValue(families["node_filesystem_avail_bytes"])
 	}
+	// 容器内存最高的那个容器的上限：卡片只显示百分比时看不出还剩多少，
+	// 有了上限就能按 百分比 × 上限 反推已用与可用。两种口径各存一份，
+	// 因为数据库节点的规则盯 anon、其余盯 working_set，最高的容器可能不是同一个。
+	h.CtrWsLimit = topContainerLimit(families, "ttpos_container_memory_usage_ratio")
+	h.CtrAnonLimit = topContainerLimit(families, "ttpos_container_memory_anon_ratio")
 	h.DiskReadBps = rate(prev.diskRead, cur.diskRead)
 	h.DiskWriteBps = rate(prev.diskWrite, cur.diskWrite)
 	h.DiskIOPS = rate(prev.diskOps, cur.diskOps)
@@ -127,6 +132,26 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 	if err := m.store.InsertHostSample(target.ID, &h); err != nil {
 		log.Printf("[prom] host sample %s: %v", target.Name, err)
 	}
+}
+
+// topContainerLimit 找出 ratioMetric 最高的那个容器，返回它的内存上限字节；
+// 没有样本或该容器没设上限时返回 0，前端据此退回只显示百分比。
+func topContainerLimit(families map[string][]promSample, ratioMetric string) float64 {
+	best, name := -1.0, ""
+	for _, s := range families[ratioMetric] {
+		if s.Value > best {
+			best, name = s.Value, s.Labels["container"]
+		}
+	}
+	if name == "" {
+		return 0
+	}
+	for _, s := range families["ttpos_container_memory_limit_bytes"] {
+		if s.Labels["container"] == name {
+			return s.Value
+		}
+	}
+	return 0
 }
 
 // rootFSValue 取 mountpoint="/" 的样本值；没有就返回 0（比如容器化的 node_exporter 没挂根分区）。

@@ -5366,11 +5366,21 @@ const OBJ_METRIC_COLS = [
     { label: 'Swap', metric: 'node_memory_SwapFree_bytes', pct: true },
     { label: '根分区', metric: 'node_filesystem_avail_bytes', pct: true },
     { label: '负载', metric: 'node_load1', pct: false },
-    { label: '容器最高', metric: 'ttpos_container_memory_usage_ratio', pct: true },
+    // 数据库节点的规则盯 anon_ratio、其余盯 working_set，这里两种都认
+    { label: '容器最高', metric: 'ttpos_container_memory_usage_ratio', altMetric: 'ttpos_container_memory_anon_ratio', pct: true },
 ];
 
+function objCheckOf(o, def) {
+    return (o.checks || []).find(x => x.metric === def.metric && x.has_value)
+        || (def.altMetric ? (o.checks || []).find(x => x.metric === def.altMetric && x.has_value) : null);
+}
+// 百分比 × 上限 反推已用/可用；上限没采到时返回空串，调用方退回只显示百分比
+function capTip(pct, limit) {
+    if (!limit) return '';
+    return `已用 ${fmtGB(pct * limit / 100)} · 可用 ${fmtGB((100 - pct) * limit / 100)} · 共 ${fmtGB(limit)}`;
+}
 function objMetricCell(o, def) {
-    const c = (o.checks || []).find(x => x.metric === def.metric && x.has_value);
+    const c = objCheckOf(o, def);
     if (!c) return h('span', { style: 'opacity:.3' }, '–');
     const v = Math.round(c.value * 10) / 10;
     const color = c.matched ? '#d03050' : (c.risk ? '#f0a020' : '');
@@ -5382,7 +5392,11 @@ function objMetricCell(o, def) {
     const fsTip = def.metric === 'node_filesystem_avail_bytes' && o.fs_total
         ? `已用 ${fmtGB(o.fs_total - o.fs_avail)} · 可用 ${fmtGB(o.fs_avail)} · 共 ${fmtGB(o.fs_total)}`
         : '';
-    const tip = [memTip, fsTip, c.detail].filter(Boolean).join('\n');
+    // 容器最高列：按显示的那种口径取对应的容器上限
+    const ctrTip = def.label === '容器最高'
+        ? capTip(c.value, c.metric === 'ttpos_container_memory_anon_ratio' ? o.ctr_anon_limit : o.ctr_ws_limit)
+        : '';
+    const tip = [memTip, fsTip, ctrTip, c.detail].filter(Boolean).join('\n');
     const cell = h('span', {
         style: `font-family:monospace;${color ? 'color:' + color + ';font-weight:700' : ''}${tip ? ';cursor:help;border-bottom:1px dotted currentColor' : ''}`,
     }, v + (def.pct ? '%' : ''));
@@ -5754,7 +5768,7 @@ const ObjectDetailPage = defineComponent({
             if (!d) return h('div', { style: 'height:200px' });
             const o = d.object;
             const kpis = OBJ_METRIC_COLS.map(def => {
-                const c = (o.checks || []).find(x => x.metric === def.metric && x.has_value);
+                const c = objCheckOf(o, def);
                 return c ? { label: def.label, check: c, pct: def.pct } : null;
             }).filter(Boolean);
             return h('div', { class: 'page-body' }, [
@@ -5789,6 +5803,10 @@ const ObjectDetailPage = defineComponent({
                         let caption = k.check.matched ? '▲ 触发中' : (k.check.risk ? '接近阈值 ' + k.check.threshold : '阈值 ' + k.check.threshold);
                         if (k.label === '内存' && o.mem_total) caption = `已用 ${(v * o.mem_total / 100 / 1073741824).toFixed(1)} / 共 ${fmtGB(o.mem_total)}`;
                         if (k.label === '根分区' && o.fs_total) caption = `已用 ${fmtGB(o.fs_total - o.fs_avail)} / 共 ${fmtGB(o.fs_total)} · 可用 ${fmtGB(o.fs_avail)}`;
+                        if (k.label === '容器最高') {
+                            const lim = k.check.metric === 'ttpos_container_memory_anon_ratio' ? o.ctr_anon_limit : o.ctr_ws_limit;
+                            if (lim) caption = `已用 ${fmtGB(v * lim / 100)} / 共 ${fmtGB(lim)} · 可用 ${fmtGB((100 - v) * lim / 100)}`;
+                        }
                         return { label: k.label, value: (Math.round(v * 10) / 10) + (k.pct ? '%' : ''), caption,
                             tone: k.check.matched ? 'crit' : (k.check.risk ? 'warn' : '') };
                     });

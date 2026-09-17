@@ -11,26 +11,28 @@ import (
 // 上一轮做差分得到速率，这里只存算好的结果。规模账：21 台 × 1440 行/天 ×
 // 7 天 ≈ 21 万行，远小于 metric_samples。查询按范围长度分桶取均值。
 type HostSample struct {
-	Ts           int64   `json:"t"`         // unix 秒（分桶后为桶起点）
-	CPUPct       float64 `json:"cpu"`       // CPU 使用率 %（1 - idle）
-	IowaitPct    float64 `json:"iowait"`    // CPU 等 IO 的比例 %
-	MemPct       float64 `json:"mem"`       // 内存使用率 %（1 - MemAvailable/MemTotal）
-	MemTotal     float64 `json:"mem_total"` // 总内存字节，前端据此换算已用/可用 GB
-	FSTotal      float64 `json:"fs_total"`  // 根分区总字节（mountpoint=/），前端换算已用/可用
-	FSAvail      float64 `json:"fs_avail"`  // 根分区可用字节
-	DiskReadBps  float64 `json:"disk_r"`    // 磁盘读 B/s（整盘，不含分区重复计数）
-	DiskWriteBps float64 `json:"disk_w"`    // 磁盘写 B/s
-	DiskIOPS     float64 `json:"disk_iops"` // 读+写 完成次数 /s
-	DiskUtilPct  float64 `json:"disk_util"` // 最忙那块盘的繁忙度 %
-	NetRxBps     float64 `json:"net_rx"`    // 物理网卡下行 B/s
-	NetTxBps     float64 `json:"net_tx"`    // 物理网卡上行 B/s
+	Ts           int64   `json:"t"`              // unix 秒（分桶后为桶起点）
+	CPUPct       float64 `json:"cpu"`            // CPU 使用率 %（1 - idle）
+	IowaitPct    float64 `json:"iowait"`         // CPU 等 IO 的比例 %
+	MemPct       float64 `json:"mem"`            // 内存使用率 %（1 - MemAvailable/MemTotal）
+	MemTotal     float64 `json:"mem_total"`      // 总内存字节，前端据此换算已用/可用 GB
+	FSTotal      float64 `json:"fs_total"`       // 根分区总字节（mountpoint=/），前端换算已用/可用
+	FSAvail      float64 `json:"fs_avail"`       // 根分区可用字节
+	CtrWsLimit   float64 `json:"ctr_ws_limit"`   // 工作集口径占比最高的那个容器的内存上限字节
+	CtrAnonLimit float64 `json:"ctr_anon_limit"` // 匿名口径占比最高的那个容器的内存上限字节
+	DiskReadBps  float64 `json:"disk_r"`         // 磁盘读 B/s（整盘，不含分区重复计数）
+	DiskWriteBps float64 `json:"disk_w"`         // 磁盘写 B/s
+	DiskIOPS     float64 `json:"disk_iops"`      // 读+写 完成次数 /s
+	DiskUtilPct  float64 `json:"disk_util"`      // 最忙那块盘的繁忙度 %
+	NetRxBps     float64 `json:"net_rx"`         // 物理网卡下行 B/s
+	NetTxBps     float64 `json:"net_tx"`         // 物理网卡上行 B/s
 }
 
 func (s *Store) InsertHostSample(targetID int64, h *HostSample) error {
 	_, err := s.db.Exec(`INSERT INTO host_samples
-		(target_id, ts, cpu_pct, iowait_pct, mem_pct, mem_total_bytes, fs_total_bytes, fs_avail_bytes, disk_read_bps, disk_write_bps, disk_iops, disk_util_pct, net_rx_bps, net_tx_bps)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		targetID, h.Ts, h.CPUPct, h.IowaitPct, h.MemPct, h.MemTotal, h.FSTotal, h.FSAvail, h.DiskReadBps, h.DiskWriteBps, h.DiskIOPS, h.DiskUtilPct, h.NetRxBps, h.NetTxBps)
+		(target_id, ts, cpu_pct, iowait_pct, mem_pct, mem_total_bytes, fs_total_bytes, fs_avail_bytes, ctr_ws_limit_bytes, ctr_anon_limit_bytes, disk_read_bps, disk_write_bps, disk_iops, disk_util_pct, net_rx_bps, net_tx_bps)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		targetID, h.Ts, h.CPUPct, h.IowaitPct, h.MemPct, h.MemTotal, h.FSTotal, h.FSAvail, h.CtrWsLimit, h.CtrAnonLimit, h.DiskReadBps, h.DiskWriteBps, h.DiskIOPS, h.DiskUtilPct, h.NetRxBps, h.NetTxBps)
 	return err
 }
 
@@ -41,6 +43,7 @@ func (s *Store) ListHostSamples(targetID int64, from, to time.Time, bucketSec in
 	}
 	rows, err := s.db.Query(fmt.Sprintf(`SELECT (ts/%d)*%d AS bucket,
 			AVG(cpu_pct), AVG(iowait_pct), AVG(mem_pct), MAX(mem_total_bytes), MAX(fs_total_bytes), AVG(fs_avail_bytes),
+			MAX(ctr_ws_limit_bytes), MAX(ctr_anon_limit_bytes),
 			AVG(disk_read_bps), AVG(disk_write_bps), AVG(disk_iops), MAX(disk_util_pct),
 			AVG(net_rx_bps), AVG(net_tx_bps)
 		FROM host_samples WHERE target_id = ? AND ts >= ? AND ts <= ?
@@ -54,6 +57,7 @@ func (s *Store) ListHostSamples(targetID int64, from, to time.Time, bucketSec in
 	for rows.Next() {
 		var h HostSample
 		if rows.Scan(&h.Ts, &h.CPUPct, &h.IowaitPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
+			&h.CtrWsLimit, &h.CtrAnonLimit,
 			&h.DiskReadBps, &h.DiskWriteBps, &h.DiskIOPS, &h.DiskUtilPct,
 			&h.NetRxBps, &h.NetTxBps) == nil {
 			out = append(out, h)
@@ -75,6 +79,7 @@ func (s *Store) PurgeOldHostSamples() (int64, error) {
 // LatestHostSamples 每个目标最新一行（对象列表悬停换算已用/可用 GB 用）。
 func (s *Store) LatestHostSamples() (map[int64]HostSample, error) {
 	rows, err := s.db.Query(`SELECT h.target_id, h.ts, h.cpu_pct, h.iowait_pct, h.mem_pct, h.mem_total_bytes, h.fs_total_bytes, h.fs_avail_bytes,
+			h.ctr_ws_limit_bytes, h.ctr_anon_limit_bytes,
 			h.disk_read_bps, h.disk_write_bps, h.disk_iops, h.disk_util_pct, h.net_rx_bps, h.net_tx_bps
 		FROM host_samples h
 		JOIN (SELECT target_id, MAX(ts) AS ts FROM host_samples GROUP BY target_id) m
@@ -88,6 +93,7 @@ func (s *Store) LatestHostSamples() (map[int64]HostSample, error) {
 		var id int64
 		var h HostSample
 		if rows.Scan(&id, &h.Ts, &h.CPUPct, &h.IowaitPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
+			&h.CtrWsLimit, &h.CtrAnonLimit,
 			&h.DiskReadBps, &h.DiskWriteBps, &h.DiskIOPS, &h.DiskUtilPct,
 			&h.NetRxBps, &h.NetTxBps) == nil {
 			out[id] = h
