@@ -27,6 +27,7 @@ type objCheck struct {
 	Condition string  `json:"condition"`
 	Threshold string  `json:"threshold"`
 	Strategy  string  `json:"strategy"`
+	ExprKind  string  `json:"expr_kind,omitempty"` // raw/delta/ratio/available_ratio，前端据此把原始值换算成人能读的单位
 	HasValue  bool    `json:"has_value"`
 	Value     float64 `json:"value"`
 	Detail    string  `json:"detail,omitempty"`
@@ -76,7 +77,7 @@ func buildObjChecks(checks []store.PromCheck, snap map[int64]monitor.PromSnap) [
 		oc := objCheck{
 			ID: c.ID, Name: c.Name, Metric: c.Metric, Dimension: c.Dimension,
 			Severity: c.Severity, Condition: c.AlertCondition, Threshold: c.AlertValue,
-			Strategy: c.AlertStrategy,
+			Strategy: c.AlertStrategy, ExprKind: c.ExprKind,
 		}
 		if sn, ok := snap[c.ID]; ok {
 			oc.HasValue = sn.Err == ""

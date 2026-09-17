@@ -5132,7 +5132,7 @@ function svgLine(points, w, hg, opts) {
     // svgLine 是无状态渲染函数，悬停高亮直接操作 DOM，不进 Vue 响应式。
     children.push(h('line', { class: 'tt-line', y1: 0, y2: hg, stroke: color, 'stroke-width': 1, opacity: 0, 'stroke-dasharray': '4,3' }));
     children.push(h('circle', { class: 'tt-dot', r: 3.5, fill: color, stroke: '#fff', 'stroke-width': 1.2, opacity: 0 }));
-    const fmtV = v => Math.round(v * 100) / 100;
+    const fmtV = (opts && opts.fmt) || (v => Math.round(v * 100) / 100);
     return h('div', { style: 'position:relative' }, [
         h('svg', {
             viewBox: '0 0 ' + w + ' ' + hg, preserveAspectRatio: 'none',
@@ -5490,6 +5490,39 @@ function fmtBps(v) {
     return Math.round(v) + ' B/s';
 }
 function fmtGB(bytes) { return (bytes / 1073741824).toFixed(1) + ' GB'; }
+function fmtBytes(v) {
+    const a = Math.abs(v);
+    if (a >= 1099511627776) return (v / 1099511627776).toFixed(2) + ' TB';
+    if (a >= 1073741824) return (v / 1073741824).toFixed(2) + ' GB';
+    if (a >= 1048576) return (v / 1048576).toFixed(1) + ' MB';
+    if (a >= 1024) return (v / 1024).toFixed(1) + ' KB';
+    return Math.round(v) + ' B';
+}
+function fmtSecs(v) {
+    const a = Math.abs(v);
+    if (a >= 86400) return (v / 86400).toFixed(1) + ' 天';
+    if (a >= 3600) return (v / 3600).toFixed(1) + ' 小时';
+    if (a >= 60) return (v / 60).toFixed(1) + ' 分钟';
+    return (Math.round(v * 10) / 10) + ' 秒';
+}
+// 按指标语义决定怎么显示。原始值人读不出来：counter 的 delta 是"每个采集周期的增量"
+// （30s 周期下 900000000 其实是 30 MB/s），字节数是一长串数字。
+// intervalSec 来自目标的采集周期，只有 delta 口径需要它。
+function checkValueFmt(check, intervalSec) {
+    const m = (check && check.metric) || '';
+    const kind = (check && check.expr_kind) || '';
+    const plain = v => String(Math.round(v * 100) / 100);
+    if (kind === 'ratio' || kind === 'available_ratio' || /_ratio$/.test(m) || /_pct$/.test(m)) {
+        return v => (Math.round(v * 100) / 100) + '%';
+    }
+    if (/bytes/.test(m)) {
+        if (kind === 'delta' && intervalSec > 0) return v => fmtBps(v / intervalSec);
+        return v => fmtBytes(v);
+    }
+    if (/_seconds$/.test(m)) return v => fmtSecs(v);
+    if (/_hours$/.test(m)) return v => (Math.round(v * 10) / 10) + ' 小时';
+    return plain;
+}
 function fmtUnit(v, unit) {
     if (unit === 'pct') return (Math.round(v * 10) / 10) + '%';
     if (unit === 'bps') return fmtBps(v);
@@ -5577,6 +5610,8 @@ const ObjectDetailPage = defineComponent({
         const sparks = ref({});          // check_id -> [{t,v},...]
         const trend = ref(null);         // 大图弹窗：{check, points, hours}
         const trendLoading = ref(false);
+        // 目标的采集周期：checkValueFmt 把 delta 口径的周期增量换算成每秒时要用
+        const objInterval = computed(() => (data.value && data.value.object && data.value.object.interval_sec) || 0);
         // 资源趋势（仅 node 目标）：昨天 / 今天 / 最近七天 / 自定义
         const resRange = ref('today');
         const resCustom = ref(null);
@@ -5663,14 +5698,25 @@ const ObjectDetailPage = defineComponent({
                 title: '当前值', key: 'value', width: 130, render: c => c.err
                     ? h(NTooltip, null, { trigger: () => h(NTag, { size: 'tiny', type: 'default' }, () => '无数据'), default: () => c.err })
                     : h('div', null, [
-                        h('span', { style: 'font-family:monospace;font-weight:600' }, Math.round(c.value * 100) / 100),
+                        (() => {
+                            const shown = checkValueFmt(c, objInterval.value)(c.value);
+                            const raw = String(Math.round(c.value * 100) / 100);
+                            const el = h('span', { style: 'font-family:monospace;font-weight:600' }, shown);
+                            return shown === raw ? el : h(NTooltip, null, { trigger: () => el, default: () => '原始值 ' + raw });
+                        })(),
                         c.detail ? h(NTooltip, null, {
                             trigger: () => h('div', { style: 'font-size:10.5px;font-family:monospace;opacity:.6;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help' }, c.detail),
                             default: () => h('div', { style: 'font-family:monospace;font-size:12px;max-width:480px;word-break:break-all' }, c.detail),
                         }) : null,
                     ]),
             },
-            { title: '条件', key: 'cond', width: 120, render: c => h('span', { style: 'font-family:monospace;font-size:12px' }, c.strategy === 'increase' ? '增长>' + '' : ({ gt: '>', gte: '≥', lt: '<', lte: '≤' }[c.condition] || c.condition) + ' ' + c.threshold) },
+            { title: '条件', key: 'cond', width: 120, render: c => {
+                if (c.strategy === 'increase') return h('span', { style: 'font-family:monospace;font-size:12px' }, '增长>');
+                const op = { gt: '>', gte: '≥', lt: '<', lte: '≤' }[c.condition] || c.condition;
+                const n = parseFloat(c.threshold);
+                const th = isNaN(n) ? c.threshold : checkValueFmt(c, objInterval.value)(n);
+                return h('span', { style: 'font-family:monospace;font-size:12px' }, op + ' ' + th);
+            } },
             {
                 title: '状态', key: 'st', width: 76, render: c => c.matched
                     ? h(NTag, { size: 'small', type: 'error', bordered: false }, () => '触发中')
@@ -5827,11 +5873,14 @@ const ObjectDetailPage = defineComponent({
                     h(NSpin, { show: trendLoading.value }, () =>
                         trend.value.points.length >= 2
                             ? h('div', null, [
-                                svgLine(trend.value.points, 800, 240, { fill: true, width: 2, interactive: true, style: 'width:100%;height:240px;display:block' }),
+                                svgLine(trend.value.points, 800, 240, { fill: true, width: 2, interactive: true, fmt: checkValueFmt(trend.value.check, o.interval_sec), style: 'width:100%;height:240px;display:block' }),
                                 h('div', { style: 'display:flex;justify-content:space-between;font-size:11px;opacity:.55;font-family:monospace;margin-top:4px' }, [
                                     h('span', null, new Date(trend.value.points[0].t * 1000).toLocaleString()),
-                                    h('span', null, '峰值 ' + Math.round(Math.max(...trend.value.points.map(p => p.v)) * 100) / 100 +
-                                        ' · 均值 ' + Math.round(trend.value.points.reduce((a, p) => a + p.v, 0) / trend.value.points.length * 100) / 100),
+                                    (() => {
+                                        const f = checkValueFmt(trend.value.check, o.interval_sec);
+                                        const ps = trend.value.points;
+                                        return h('span', null, '峰值 ' + f(Math.max(...ps.map(p => p.v))) + ' · 均值 ' + f(ps.reduce((a, p) => a + p.v, 0) / ps.length));
+                                    })(),
                                     h('span', null, new Date(trend.value.points[trend.value.points.length - 1].t * 1000).toLocaleString()),
                                 ]),
                             ])
