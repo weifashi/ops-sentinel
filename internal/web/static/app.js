@@ -5263,8 +5263,11 @@ const OverviewPage = defineComponent({
             { title: '当前值', key: 'value', render: r => h('span', { style: 'font-family:monospace' }, (Math.round(r.value * 100) / 100).toString()) },
             { title: '阈值', key: 'threshold', render: r => h('span', { style: 'font-family:monospace' }, r.threshold) },
             {
-                title: '距告警', key: 'closeness', render: r =>
-                    h(NTag, { size: 'small', type: r.closeness >= 0.95 ? 'error' : 'warning', bordered: false },
+                // closeness >= 1 表示值已经越过阈值，只是 sustained 还没连够 N 轮。
+                // 这种行再显示"距告警 103%"会让人以为还没到，直接说清状态。
+                title: '距告警', key: 'closeness', render: r => r.closeness >= 1
+                    ? h(NTag, { size: 'small', type: 'error', bordered: false }, () => '已超阈值·待持续')
+                    : h(NTag, { size: 'small', type: r.closeness >= 0.95 ? 'error' : 'warning', bordered: false },
                         () => Math.round(r.closeness * 100) + '%'),
             },
         ];
@@ -5316,7 +5319,7 @@ const OverviewPage = defineComponent({
                     : h('div', { class: 'sen-card', style: 'border-style:dashed;opacity:.65;font-size:13px' }, '✓ 当前没有触发中的告警'),
 
                 d.risks && d.risks.length ? [
-                    h('div', { class: 'sen-sec', style: 'color:#f0a020' }, `容量风险（未触发但已接近阈值）`),
+                    h('div', { class: 'sen-sec', style: 'color:#f0a020' }, `容量风险（尚未告警）`),
                     h(NDataTable, { columns: riskColumns, data: d.risks, size: 'small', bordered: false }),
                 ] : null,
 
