@@ -5610,7 +5610,9 @@ const ResChart = defineComponent({
 const RES_CHARTS = [
     { title: 'CPU', yAxes: [{ unit: 'pct' }], series: [
         { key: 'cpu', name: '使用率', color: '#2080f0', area: true },
-        { key: 'iowait', name: 'IO 等待', color: '#f0a020' }] },
+        { key: 'iowait', name: 'IO 等待', color: '#f0a020' },
+        // 被宿主机抢走的时间：裸金属恒为 0，VM 上偏高说明宿主 CPU 超配
+        { key: 'steal', name: '被抢占', color: '#d03050' }] },
     { title: '内存', yAxes: [{ unit: 'pct' }], series: [
         { key: 'mem', name: '使用率', color: '#18a058', area: true,
           // 总内存从采样点带出来，换算已用 / 可用（老采样点没有总量时不显示）
@@ -5825,7 +5827,8 @@ const ObjectDetailPage = defineComponent({
                     });
                     // node 目标补两张来自资源采样的卡：CPU、网络（规则里没有这两个指标）
                     if (last && o.kind === 'node') {
-                        cards.splice(1, 0, { label: 'CPU', value: (Math.round(last.cpu * 10) / 10) + '%', caption: `IO 等待 ${(Math.round(last.iowait * 10) / 10)}%`, tone: last.cpu >= 90 ? 'warn' : '' });
+                        const stealTxt = last.steal >= 1 ? ` · 被抢占 ${(Math.round(last.steal * 10) / 10)}%` : '';
+                        cards.splice(1, 0, { label: 'CPU', value: (Math.round(last.cpu * 10) / 10) + '%', caption: `IO 等待 ${(Math.round(last.iowait * 10) / 10)}%` + stealTxt, tone: (last.cpu >= 90 || last.steal >= 15) ? 'warn' : '' });
                         cards.push({ label: '网络', value: '↓ ' + fmtBps(last.net_rx), caption: '↑ ' + fmtBps(last.net_tx), tone: '', small: true });
                     }
                     return cards.length ? h('div', { class: 'obj-kpis' }, cards.map(k => h('div', { class: 'sen-card sen-kpi ' + k.tone }, [

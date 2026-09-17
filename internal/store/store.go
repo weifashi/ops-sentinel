@@ -157,6 +157,7 @@ func New(dataDir string) (*Store, error) {
 		"ALTER TABLE host_samples ADD COLUMN fs_avail_bytes REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE host_samples ADD COLUMN ctr_ws_limit_bytes REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE host_samples ADD COLUMN ctr_anon_limit_bytes REAL NOT NULL DEFAULT 0",
+		"ALTER TABLE host_samples ADD COLUMN steal_pct REAL NOT NULL DEFAULT 0",
 		"ALTER TABLE grafana_configs ADD COLUMN webhook_secret TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE rocketmq_configs ADD COLUMN notify_new_msg INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE rocketmq_alert_logs ADD COLUMN message_body TEXT NOT NULL DEFAULT ''",

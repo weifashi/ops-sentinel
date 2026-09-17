@@ -14,6 +14,7 @@ type HostSample struct {
 	Ts           int64   `json:"t"`              // unix 秒（分桶后为桶起点）
 	CPUPct       float64 `json:"cpu"`            // CPU 使用率 %（1 - idle）
 	IowaitPct    float64 `json:"iowait"`         // CPU 等 IO 的比例 %
+	StealPct     float64 `json:"steal"`          // CPU 被宿主机抢走的比例 %（裸金属恒为 0，VM 上偏高=宿主超配）
 	MemPct       float64 `json:"mem"`            // 内存使用率 %（1 - MemAvailable/MemTotal）
 	MemTotal     float64 `json:"mem_total"`      // 总内存字节，前端据此换算已用/可用 GB
 	FSTotal      float64 `json:"fs_total"`       // 根分区总字节（mountpoint=/），前端换算已用/可用
@@ -30,9 +31,9 @@ type HostSample struct {
 
 func (s *Store) InsertHostSample(targetID int64, h *HostSample) error {
 	_, err := s.db.Exec(`INSERT INTO host_samples
-		(target_id, ts, cpu_pct, iowait_pct, mem_pct, mem_total_bytes, fs_total_bytes, fs_avail_bytes, ctr_ws_limit_bytes, ctr_anon_limit_bytes, disk_read_bps, disk_write_bps, disk_iops, disk_util_pct, net_rx_bps, net_tx_bps)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		targetID, h.Ts, h.CPUPct, h.IowaitPct, h.MemPct, h.MemTotal, h.FSTotal, h.FSAvail, h.CtrWsLimit, h.CtrAnonLimit, h.DiskReadBps, h.DiskWriteBps, h.DiskIOPS, h.DiskUtilPct, h.NetRxBps, h.NetTxBps)
+		(target_id, ts, cpu_pct, iowait_pct, steal_pct, mem_pct, mem_total_bytes, fs_total_bytes, fs_avail_bytes, ctr_ws_limit_bytes, ctr_anon_limit_bytes, disk_read_bps, disk_write_bps, disk_iops, disk_util_pct, net_rx_bps, net_tx_bps)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		targetID, h.Ts, h.CPUPct, h.IowaitPct, h.StealPct, h.MemPct, h.MemTotal, h.FSTotal, h.FSAvail, h.CtrWsLimit, h.CtrAnonLimit, h.DiskReadBps, h.DiskWriteBps, h.DiskIOPS, h.DiskUtilPct, h.NetRxBps, h.NetTxBps)
 	return err
 }
 
@@ -42,7 +43,7 @@ func (s *Store) ListHostSamples(targetID int64, from, to time.Time, bucketSec in
 		bucketSec = 60
 	}
 	rows, err := s.db.Query(fmt.Sprintf(`SELECT (ts/%d)*%d AS bucket,
-			AVG(cpu_pct), AVG(iowait_pct), AVG(mem_pct), MAX(mem_total_bytes), MAX(fs_total_bytes), AVG(fs_avail_bytes),
+			AVG(cpu_pct), AVG(iowait_pct), AVG(steal_pct), AVG(mem_pct), MAX(mem_total_bytes), MAX(fs_total_bytes), AVG(fs_avail_bytes),
 			MAX(ctr_ws_limit_bytes), MAX(ctr_anon_limit_bytes),
 			AVG(disk_read_bps), AVG(disk_write_bps), AVG(disk_iops), MAX(disk_util_pct),
 			AVG(net_rx_bps), AVG(net_tx_bps)
@@ -56,7 +57,7 @@ func (s *Store) ListHostSamples(targetID int64, from, to time.Time, bucketSec in
 	out := []HostSample{}
 	for rows.Next() {
 		var h HostSample
-		if rows.Scan(&h.Ts, &h.CPUPct, &h.IowaitPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
+		if rows.Scan(&h.Ts, &h.CPUPct, &h.IowaitPct, &h.StealPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
 			&h.CtrWsLimit, &h.CtrAnonLimit,
 			&h.DiskReadBps, &h.DiskWriteBps, &h.DiskIOPS, &h.DiskUtilPct,
 			&h.NetRxBps, &h.NetTxBps) == nil {
@@ -78,7 +79,7 @@ func (s *Store) PurgeOldHostSamples() (int64, error) {
 
 // LatestHostSamples 每个目标最新一行（对象列表悬停换算已用/可用 GB 用）。
 func (s *Store) LatestHostSamples() (map[int64]HostSample, error) {
-	rows, err := s.db.Query(`SELECT h.target_id, h.ts, h.cpu_pct, h.iowait_pct, h.mem_pct, h.mem_total_bytes, h.fs_total_bytes, h.fs_avail_bytes,
+	rows, err := s.db.Query(`SELECT h.target_id, h.ts, h.cpu_pct, h.iowait_pct, h.steal_pct, h.mem_pct, h.mem_total_bytes, h.fs_total_bytes, h.fs_avail_bytes,
 			h.ctr_ws_limit_bytes, h.ctr_anon_limit_bytes,
 			h.disk_read_bps, h.disk_write_bps, h.disk_iops, h.disk_util_pct, h.net_rx_bps, h.net_tx_bps
 		FROM host_samples h
@@ -92,7 +93,7 @@ func (s *Store) LatestHostSamples() (map[int64]HostSample, error) {
 	for rows.Next() {
 		var id int64
 		var h HostSample
-		if rows.Scan(&id, &h.Ts, &h.CPUPct, &h.IowaitPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
+		if rows.Scan(&id, &h.Ts, &h.CPUPct, &h.IowaitPct, &h.StealPct, &h.MemPct, &h.MemTotal, &h.FSTotal, &h.FSAvail,
 			&h.CtrWsLimit, &h.CtrAnonLimit,
 			&h.DiskReadBps, &h.DiskWriteBps, &h.DiskIOPS, &h.DiskUtilPct,
 			&h.NetRxBps, &h.NetTxBps) == nil {

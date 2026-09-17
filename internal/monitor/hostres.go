@@ -16,11 +16,11 @@ import (
 
 // hostPrev 是上一轮的累计值，只保留做差分需要的几个和。
 type hostPrev struct {
-	at                           time.Time
-	cpuIdle, cpuIowait, cpuTotal float64
-	diskRead, diskWrite, diskOps float64
-	diskIOTime                   map[string]float64 // 按盘，算"最忙那块盘"的繁忙度
-	netRx, netTx                 float64
+	at                                     time.Time
+	cpuIdle, cpuIowait, cpuSteal, cpuTotal float64
+	diskRead, diskWrite, diskOps           float64
+	diskIOTime                             map[string]float64 // 按盘，算"最忙那块盘"的繁忙度
+	netRx, netTx                           float64
 }
 
 // 整盘设备（不含分区，分区会和整盘重复计数）
@@ -44,6 +44,9 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 			cur.cpuIdle += s.Value
 		case "iowait":
 			cur.cpuIowait += s.Value
+		case "steal":
+			// 虚拟机等不到宿主机 CPU 的时间。裸金属恒为 0，VM 上偏高说明宿主超配。
+			cur.cpuSteal += s.Value
 		}
 	}
 	if cur.cpuTotal == 0 {
@@ -103,6 +106,7 @@ func (m *PromManager) sampleHostResources(target *store.PromTarget, families map
 	if dTotal := cur.cpuTotal - prev.cpuTotal; dTotal > 0 {
 		h.CPUPct = clampPct(100 * (1 - (cur.cpuIdle-prev.cpuIdle)/dTotal))
 		h.IowaitPct = clampPct(100 * (cur.cpuIowait - prev.cpuIowait) / dTotal)
+		h.StealPct = clampPct(100 * (cur.cpuSteal - prev.cpuSteal) / dTotal)
 	}
 	if avail, total := firstValue(families["node_memory_MemAvailable_bytes"]), firstValue(families["node_memory_MemTotal_bytes"]); total > 0 {
 		h.MemPct = clampPct(100 * (1 - avail/total))
